@@ -1,0 +1,6 @@
+{
+  "name": "StockFlow ERP",
+  "description": "Sistema moderno de inventario y ventas para pequeñas y medianas empresas",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
