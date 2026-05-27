@@ -193,59 +193,45 @@ export default function App() {
   };
 
   // Perform login
-  const handleLoginSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoginError('');
+const handleLoginSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setLoginError('');
 
-    const trimmedUsername = username.trim();
-    const trimmedPassword = password.trim();
+  const trimmedUsername = username.trim();
+  const trimmedPassword = password.trim();
 
-    if (!trimmedUsername || !trimmedPassword) {
-      setLoginError('Complete todos los campos del login.');
-      return;
-    }
-
-    try {
-  const response = await fetch(
-    `${import.meta.env.VITE_API_URL}/api/auth/login`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: trimmedUsername,
-        password: trimmedPassword
-      })
-    }
-  );
-
-  const resData = await response.json();
-
-  if (!response.ok) {
-    throw new Error(resData.error || 'Credenciales inválidas o cuenta de acceso inactiva.');
+  if (!trimmedUsername || !trimmedPassword) {
+    setLoginError('Complete todos los campos del login.');
+    return;
   }
 
-  localStorage.setItem('sf_token', resData.token);
-  setToken(resData.token);
-  setCurrentUser(resData.user);
+  try {
+    const response = await fetch(
+      `${import.meta.env.VITE_API_URL}/api/auth/login`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: trimmedUsername,
+          password: trimmedPassword
+        })
+      }
+    );
 
-} catch (err: any) {
-  setLoginError(err.message);
-}
+    const resData = await response.json();
 
-  // Logout clean
-  const handleLogout = () => {
-    localStorage.removeItem('sf_token');
-    setToken(null);
-    setCurrentUser(null);
-    setActiveTab('dashboard');
-  };
+    if (!response.ok) {
+      throw new Error(resData.error || 'Credenciales inválidas o cuenta de acceso inactiva.');
+    }
 
-  // Select tab and close mobile sidebar drawer
-  const selectTab = (tabId: string) => {
-    setActiveTab(tabId);
-    setMobileMenuOpen(false);
-  };
+    localStorage.setItem('sf_token', resData.token);
+    setToken(resData.token);
+    setCurrentUser(resData.user);
 
+  } catch (err: any) {
+    setLoginError(err.message);
+  }
+};
   // Navigation items filtering based on user permissions
   const getSidebarNavigation = () => {
     if (!currentUser) return [];
