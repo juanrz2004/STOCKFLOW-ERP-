@@ -1,13 +1,12 @@
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "Preserve",
-    "moduleResolution": "Bundler",
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "allowJs": true,
+    "module": "CommonJS",
+    "rootDir": ".",
+    "outDir": "dist",
+    "esModuleInterop": true,
     "strict": true,
-    "noEmit": true
+    "skipLibCheck": true
   },
   "include": ["**/*.ts"]
 }

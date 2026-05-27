@@ -1,3 +1,8 @@
+function getId(req: any): number {
+  const raw = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  return parseInt(raw);
+}
+
 import { Router, Request, Response, NextFunction } from 'express';
 import { loadDatabase, saveDatabase, generateSimpleToken, verifySimpleToken } from './database';
 import { Producto, Venta, DetalleVenta, Compra, DetalleCompra, MovimientoInventario, Caja, Cliente, Proveedor } from './types';
@@ -63,7 +68,6 @@ apiRouter.post('/auth/login', (req: Request, res: Response) => {
     return res.status(401).json({ error: 'El usuario no existe o está inactivo.' });
   }
 
-  // Simulated simple verification: `sha256_${pwd}_mock`
   const passwordHashExpected = `sha256_${password}_mock`;
   if (user.passwordHash !== passwordHashExpected) {
     return res.status(401).json({ error: 'Contraseña incorrecta.' });
@@ -89,7 +93,6 @@ apiRouter.post('/auth/logout', (req: Request, res: Response) => {
 apiRouter.get('/auth/me', authenticateJWT, (req: AuthenticatedRequest, res: Response) => {
   res.json({ user: req.user });
 });
-
 // ==========================================
 // DASHBOARD & ANALYTICS ENDPOINTS
 // ==========================================
@@ -98,15 +101,12 @@ apiRouter.get('/dashboard', authenticateJWT, (req: AuthenticatedRequest, res: Re
   const db = loadDatabase();
   const today = new Date().toISOString().split('T')[0];
 
-  // Ventas del día (monto total)
   const salesToday = db.ventas.filter(v => v.fecha.startsWith(today));
   const ventasHoyTotal = salesToday.reduce((sum, v) => sum + v.total, 0);
 
-  // Inventario: Productos agotados y stock bajo
   const agotados = db.productos.filter(p => p.stock <= 0 && p.estado === 'ACTIVO');
   const stockBajo = db.productos.filter(p => p.stock > 0 && p.stock <= p.stock_minimo && p.estado === 'ACTIVO');
 
-  // Ganancias (total ventas - costo total de productos vendidos)
   let totalVentasMonto = 0;
   let totalCostoVendido = 0;
 
@@ -117,9 +117,9 @@ apiRouter.get('/dashboard', authenticateJWT, (req: AuthenticatedRequest, res: Re
       totalCostoVendido += (prod.precio_compra * dv.cantidad);
     }
   });
+
   const gananciasTotales = totalVentasMonto - totalCostoVendido;
 
-  // Productos más vendidos (agregados por cantidad)
   const productSalesMap: Record<number, { nombre: string; codigo: string; cant: number; sub: number }> = {};
   db.detalle_ventas.forEach(dv => {
     const prod = db.productos.find(p => p.id === dv.producto_id);
@@ -141,13 +141,11 @@ apiRouter.get('/dashboard', authenticateJWT, (req: AuthenticatedRequest, res: Re
     .sort((a, b) => b.cant - a.cant)
     .slice(0, 5);
 
-  // Flujo de caja activo (caja abierta)
   const cajaActiva = db.cajas.find(c => c.estado === 'ABIERTA');
   const cashFlowActual = cajaActiva ? cajaActiva.total_calculado : 0.00;
 
-  // Actividad Reciente (combinada)
   const actividades: any[] = [];
-  
+
   db.ventas.slice(-5).forEach(v => {
     actividades.push({
       id: `V-${v.id}`,
@@ -236,7 +234,7 @@ apiRouter.post('/categorias', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO
 });
 
 apiRouter.put('/categorias/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const { nombre, descripcion } = req.body;
 
   const db = loadDatabase();
@@ -261,7 +259,7 @@ apiRouter.put('/categorias/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGU
 });
 
 apiRouter.delete('/categorias/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const db = loadDatabase();
 
   const idx = db.categorias.findIndex(c => c.id === id);
@@ -269,17 +267,15 @@ apiRouter.delete('/categorias/:id', authenticateJWT, requireRoles(['ADMIN', 'BOD
     return res.status(404).json({ error: 'Categoría no encontrada.' });
   }
 
-  // Check if any product is assigned to this category
   const assigned = db.productos.some(p => p.categoria_id === id);
   if (assigned) {
-    return res.status(400).json({ error: 'No se puede eliminar la categoría porque tiene productos asignados. Reasigne los productos primero.' });
+    return res.status(400).json({ error: 'No se puede eliminar la categoría porque tiene productos asignados.' });
   }
 
   db.categorias.splice(idx, 1);
   saveDatabase(db);
   res.json({ success: true, message: 'Categoría eliminada con éxito.' });
 });
-
 // ==========================================
 // PRODUCTS ENDPOINTS
 // ==========================================
@@ -323,7 +319,6 @@ apiRouter.post('/productos', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO'
 
   db.productos.push(newProduct);
 
-  // Register initial intake movement if stock > 0
   if (newProduct.stock > 0) {
     const movementId = db.movimientos_inventario.reduce((max, m) => Math.max(max, m.id), 0) + 1;
     const initMovement: MovimientoInventario = {
@@ -344,7 +339,7 @@ apiRouter.post('/productos', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO'
 });
 
 apiRouter.put('/productos/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const { codigo, nombre, descripcion, precio_compra, precio_venta, stock, stock_minimo, categoria_id, estado } = req.body;
 
   const db = loadDatabase();
@@ -367,12 +362,11 @@ apiRouter.put('/productos/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUE
   if (descripcion !== undefined) product.descripcion = descripcion;
   if (precio_compra !== undefined) product.precio_compra = parseFloat(precio_compra);
   if (precio_venta !== undefined) product.precio_venta = parseFloat(precio_venta);
-  
+
   if (stock_minimo !== undefined) product.stock_minimo = parseInt(stock_minimo);
   if (categoria_id !== undefined) product.categoria_id = parseInt(categoria_id);
   if (estado !== undefined) product.estado = estado;
 
-  // Handle stock adjustments directly if they passed stock differences
   if (stock !== undefined && parseInt(stock) !== product.stock) {
     const newStock = parseInt(stock);
     const diff = newStock - product.stock;
@@ -399,7 +393,7 @@ apiRouter.put('/productos/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUE
 });
 
 apiRouter.delete('/productos/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const db = loadDatabase();
 
   const idx = db.productos.findIndex(p => p.id === id);
@@ -407,7 +401,6 @@ apiRouter.delete('/productos/:id', authenticateJWT, requireRoles(['ADMIN', 'BODE
     return res.status(404).json({ error: 'Producto no encontrado.' });
   }
 
-  // Deactivate instead of hard deleting if they have records
   const hasMovements = db.movimientos_inventario.some(m => m.producto_id === id);
   if (hasMovements) {
     db.productos[idx].estado = 'INACTIVO';
@@ -457,7 +450,7 @@ apiRouter.post('/clientes', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR', 
 });
 
 apiRouter.put('/clientes/:id', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR', 'CAJERO']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const { nombre, documento, telefono, email, direccion } = req.body;
 
   const db = loadDatabase();
@@ -484,7 +477,7 @@ apiRouter.put('/clientes/:id', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR
 });
 
 apiRouter.delete('/clientes/:id', authenticateJWT, requireRoles(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   if (id === 1) {
     return res.status(400).json({ error: 'No se puede eliminar la cuenta de Consumidor Final predeterminada.' });
   }
@@ -495,7 +488,6 @@ apiRouter.delete('/clientes/:id', authenticateJWT, requireRoles(['ADMIN']), (req
     return res.status(404).json({ error: 'Cliente no encontrado.' });
   }
 
-  // Delete only if they have no registered invoices
   const hasInvoices = db.ventas.some(v => v.cliente_id === id);
   if (hasInvoices) {
     return res.status(400).json({ error: 'No se puede eliminar el cliente porque posee historial de compras en el sistema.' });
@@ -505,7 +497,6 @@ apiRouter.delete('/clientes/:id', authenticateJWT, requireRoles(['ADMIN']), (req
   saveDatabase(db);
   res.json({ success: true, message: 'Cliente eliminado con éxito.' });
 });
-
 // ==========================================
 // SUPPLIERS ENDPOINTS
 // ==========================================
@@ -543,7 +534,7 @@ apiRouter.post('/proveedores', authenticateJWT, requireRoles(['ADMIN', 'BODEGUER
 });
 
 apiRouter.put('/proveedores/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const { nombre, nif, telefono, email, direccion } = req.body;
 
   const db = loadDatabase();
@@ -570,7 +561,7 @@ apiRouter.put('/proveedores/:id', authenticateJWT, requireRoles(['ADMIN', 'BODEG
 });
 
 apiRouter.delete('/proveedores/:id', authenticateJWT, requireRoles(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
-  const id = parseInt(req.params.id);
+  const id = getId(req);
   const db = loadDatabase();
 
   const idx = db.proveedores.findIndex(p => p.id === id);
@@ -693,29 +684,31 @@ apiRouter.post('/caja/movimiento', authenticateJWT, requireRoles(['ADMIN', 'CAJE
 
 apiRouter.get('/caja/historial', authenticateJWT, (req: AuthenticatedRequest, res: Response) => {
   const db = loadDatabase();
-  // Sort latest first
   const orderList = [...db.cajas].sort((a, b) => new Date(b.fecha_apertura).getTime() - new Date(a.fecha_apertura).getTime());
   res.json(orderList);
 });
-
 // ==========================================
 // PURCHASES (COMPRAS) ENDPOINTS
 // ==========================================
 
 apiRouter.get('/compras', authenticateJWT, (req: AuthenticatedRequest, res: Response) => {
   const db = loadDatabase();
-  // Map supplier node
+
   const purchasesMapped = db.compras.map(c => {
     const prov = db.proveedores.find(p => p.id === c.proveedor_id);
     const userObj = db.usuarios.find(u => u.id === c.usuario_id);
-    const items = db.detalle_compras.filter(dc => dc.compra_id === c.id).map(dc => {
-      const p = db.productos.find(pro => pro.id === dc.producto_id);
-      return {
-        ...dc,
-        producto_nombre: p ? p.nombre : 'Producto no identificado',
-        producto_codigo: p ? p.codigo : 'N/A'
-      };
-    });
+
+    const items = db.detalle_compras
+      .filter(dc => dc.compra_id === c.id)
+      .map(dc => {
+        const p = db.productos.find(pro => pro.id === dc.producto_id);
+        return {
+          ...dc,
+          producto_nombre: p ? p.nombre : 'Producto no identificado',
+          producto_codigo: p ? p.codigo : 'N/A'
+        };
+      });
+
     return {
       ...c,
       proveedor_nombre: prov ? prov.nombre : 'Proveedor Desconocido',
@@ -728,7 +721,8 @@ apiRouter.get('/compras', authenticateJWT, (req: AuthenticatedRequest, res: Resp
 });
 
 apiRouter.post('/compras', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO']), (req: AuthenticatedRequest, res: Response) => {
-  const { proveedor_id, items } = req.body; // items: array of {producto_id, cantidad, precio_unitario}
+  const { proveedor_id, items } = req.body;
+
   if (!proveedor_id || !items || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ error: 'Debe ingresar un proveedor válido y al menos un producto para la orden de compra.' });
   }
@@ -739,15 +733,13 @@ apiRouter.post('/compras', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO'])
     return res.status(400).json({ error: 'El proveedor seleccionado es inválido.' });
   }
 
-  // Create purchase
   const nextId = db.compras.reduce((max, c) => Math.max(max, c.id), 0) + 1;
   const nextCorrelativo = `C051-${String(nextId).padStart(6, '0')}`;
-  
+
   let purchaseTotal = 0;
   const purchaseDetails: DetalleCompra[] = [];
   const inventoryMovements: MovimientoInventario[] = [];
 
-  // Validate items and compute details
   let detailIdIndex = db.detalle_compras.reduce((max, dc) => Math.max(max, dc.id), 0) + 1;
   let movementIdIndex = db.movimientos_inventario.reduce((max, m) => Math.max(max, m.id), 0) + 1;
 
@@ -777,12 +769,9 @@ apiRouter.post('/compras', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO'])
       subtotal: sub
     });
 
-    // Update Product Stock In Database
     db.productos[prodIdx].stock += cant;
-    // Overwrite buying cost to stay updated
     db.productos[prodIdx].precio_compra = cost;
 
-    // Record Inventory Movement
     inventoryMovements.push({
       id: movementIdIndex++,
       producto_id: pId,
@@ -797,23 +786,19 @@ apiRouter.post('/compras', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO'])
 
   const newCompra: Compra = {
     id: nextId,
-    fecha: new Date().toISOString(),
     proveedor_id: parseInt(proveedor_id),
-    total: purchaseTotal,
     usuario_id: req.user?.id || 1,
-    correlativo: nextCorrelativo
+    fecha: new Date().toISOString(),
+    correlativo: nextCorrelativo,
+    total: purchaseTotal
   };
 
-  // Push all to Db
   db.compras.push(newCompra);
   db.detalle_compras.push(...purchaseDetails);
   db.movimientos_inventario.push(...inventoryMovements);
 
   saveDatabase(db);
-  res.status(201).json({
-    ...newCompra,
-    detalles: purchaseDetails
-  });
+  res.status(201).json({ compra: newCompra, detalles: purchaseDetails });
 });
 
 // ==========================================
@@ -822,220 +807,117 @@ apiRouter.post('/compras', authenticateJWT, requireRoles(['ADMIN', 'BODEGUERO'])
 
 apiRouter.get('/ventas', authenticateJWT, (req: AuthenticatedRequest, res: Response) => {
   const db = loadDatabase();
-  const salesMapped = db.ventas.map(v => {
-    const cli = db.clientes.find(c => c.id === v.cliente_id);
+
+  const ventasMapped = db.ventas.map(v => {
+    const cliente = db.clientes.find(c => c.id === v.cliente_id);
     const userObj = db.usuarios.find(u => u.id === v.usuario_id);
-    const items = db.detalle_ventas.filter(dv => dv.venta_id === v.id).map(dv => {
-      const p = db.productos.find(pro => pro.id === dv.producto_id);
-      return {
-        ...dv,
-        producto_nombre: p ? p.nombre : 'Producto no identificado',
-        producto_codigo: p ? p.codigo : 'N/A'
-      };
-    });
+
+    const items = db.detalle_ventas
+      .filter(dv => dv.venta_id === v.id)
+      .map(dv => {
+        const p = db.productos.find(pr => pr.id === dv.producto_id);
+        return {
+          ...dv,
+          producto_nombre: p ? p.nombre : 'Producto no identificado',
+          producto_codigo: p ? p.codigo : 'N/A'
+        };
+      });
+
     return {
       ...v,
-      cliente_nombre: cli ? cli.nombre : 'Clientes Varios',
-      usuario_nombre: userObj ? userObj.nombre : 'Cajero',
+      cliente_nombre: cliente ? cliente.nombre : 'Consumidor Final',
+      usuario_nombre: userObj ? userObj.nombre : 'Usuario',
       detalles: items
     };
   });
-  res.json(salesMapped.reverse());
+
+  res.json(ventasMapped.reverse());
 });
 
-apiRouter.post('/ventas', authenticateJWT, requireRoles(['ADMIN', 'CAJERO', 'VENDEDOR']), (req: AuthenticatedRequest, res: Response) => {
-  const { cliente_id, metodo_pago, items } = req.body;
-  if (!cliente_id || !metodo_pago || !items || !Array.isArray(items) || items.length === 0) {
-    return res.status(400).json({ error: 'Debe elegir un cliente, método de pago y agregar productos al carrito.' });
+apiRouter.post('/ventas', authenticateJWT, requireRoles(['ADMIN', 'VENDEDOR', 'CAJERO']), (req: AuthenticatedRequest, res: Response) => {
+  const { cliente_id, items } = req.body;
+
+  if (!items || !Array.isArray(items) || items.length === 0) {
+    return res.status(400).json({ error: 'Debe ingresar al menos un producto para la venta.' });
   }
 
   const db = loadDatabase();
 
-  // Validate the cash drawer session is open for cash transactions
-  const activeCajaIdx = db.cajas.findIndex(c => c.estado === 'ABIERTA');
-  if (activeCajaIdx === -1) {
-    return res.status(400).json({ error: 'OPERACIÓN DENEGADA: No hay ninguna caja registradora ABIERTA en este momento. El cajero debe aperturar caja.' });
-  }
-
-  const clientExists = db.clientes.some(c => c.id === parseInt(cliente_id));
-  if (!clientExists) {
-    return res.status(400).json({ error: 'El cliente seleccionado no es válido.' });
-  }
-
   const nextId = db.ventas.reduce((max, v) => Math.max(max, v.id), 0) + 1;
   const nextCorrelativo = `V051-${String(nextId).padStart(6, '0')}`;
 
-  let saleTotal = 0;
+  let totalVenta = 0;
   const saleDetails: DetalleVenta[] = [];
   const inventoryMovements: MovimientoInventario[] = [];
 
   let detailIdIndex = db.detalle_ventas.reduce((max, dv) => Math.max(max, dv.id), 0) + 1;
   let movementIdIndex = db.movimientos_inventario.reduce((max, m) => Math.max(max, m.id), 0) + 1;
 
-  // Validate all items before writing any modification
   for (const item of items) {
     const pId = parseInt(item.producto_id);
     const cant = parseInt(item.cantidad);
+    const price = parseFloat(item.precio_unitario);
 
-    if (isNaN(pId) || isNaN(cant) || cant <= 0) {
-      return res.status(400).json({ error: 'Valores inválidos en la lista de items.' });
+    if (isNaN(pId) || isNaN(cant) || isNaN(price) || cant <= 0 || price <= 0) {
+      return res.status(400).json({ error: 'Artículos de venta con formato inválido, cantidad o precio no admitidos.' });
     }
-
-    const prod = db.productos.find(p => p.id === pId);
-    if (!prod || prod.estado === 'INACTIVO') {
-      return res.status(400).json({ error: `El producto seleccionado con ID ${pId} no está activo o no existe.` });
-    }
-
-    if (prod.stock < cant) {
-      return res.status(400).json({ error: `Stock insuficiente para [${prod.codigo}] ${prod.nombre}. Solicitado: ${cant}, Disponible: ${prod.stock}` });
-    }
-  }
-
-  // Record stock deduction and collect items
-  for (const item of items) {
-    const pId = parseInt(item.producto_id);
-    const cant = parseInt(item.cantidad);
 
     const prodIdx = db.productos.findIndex(p => p.id === pId);
-    const prod = db.productos[prodIdx];
+    if (prodIdx === -1) {
+      return res.status(400).json({ error: `El producto con ID ${pId} no está registrado en el inventario.` });
+    }
 
-    const sub = cant * prod.precio_venta;
-    saleTotal += sub;
+    if (db.productos[prodIdx].stock < cant) {
+      return res.status(400).json({ error: `Stock insuficiente para el producto ${db.productos[prodIdx].nombre}.` });
+    }
+
+    const sub = cant * price;
+    totalVenta += sub;
 
     saleDetails.push({
       id: detailIdIndex++,
       venta_id: nextId,
       producto_id: pId,
       cantidad: cant,
-      precio_unitario: prod.precio_venta,
-      subtotal: parseFloat(sub.toFixed(2))
+      precio_unitario: price,
+      subtotal: sub
     });
 
-    // Deduct inventory stock
     db.productos[prodIdx].stock -= cant;
 
-    // Register Outbound Movement log
     inventoryMovements.push({
       id: movementIdIndex++,
       producto_id: pId,
       tipo: 'SALIDA',
       cantidad: cant,
-      motivo: `Despacho de stock por Venta (Factura: ${nextCorrelativo})`,
+      motivo: `Salida por Venta (Correlativo: ${nextCorrelativo})`,
       fecha: new Date().toISOString(),
       usuario_id: req.user?.id || 1,
       referencia: `VENTA #${nextId}`
     });
   }
 
-  // Register Transaction into Cash Register Open session
-  const activeCaja = db.cajas[activeCajaIdx];
-  activeCaja.monto_ventas += saleTotal;
-  activeCaja.total_calculado += saleTotal;
-  db.cajas[activeCajaIdx] = activeCaja;
-
-  const newVenta: Venta = {
-    id: nextId,
-    fecha: new Date().toISOString(),
-    cliente_id: parseInt(cliente_id),
-    total: parseFloat(saleTotal.toFixed(2)),
-    metodo_pago,
-    usuario_id: req.user?.id || 1,
-    correlativo: nextCorrelativo,
-    caja_id: activeCaja.id
-  };
-
+ const newVenta: Venta = {
+  id: nextId,
+  cliente_id: cliente_id ? parseInt(cliente_id) : 1,
+  usuario_id: req.user?.id || 1,
+  fecha: new Date().toISOString(),
+  correlativo: nextCorrelativo,
+  total: totalVenta,
+  metodo_pago: 'EFECTIVO', // valor por defecto o según tu lógica
+  caja_id: null            // si no tienes caja activa, usa null
+};
   db.ventas.push(newVenta);
   db.detalle_ventas.push(...saleDetails);
   db.movimientos_inventario.push(...inventoryMovements);
 
   saveDatabase(db);
-
-  res.status(201).json({
-    ...newVenta,
-    detalles: saleDetails,
-    caja_actualizada: activeCaja
-  });
+  res.status(201).json({ venta: newVenta, detalles: saleDetails });
 });
 
 // ==========================================
-// INVENTORY MOVEMENTS LIST ENPOINT
+// END OF FILE
 // ==========================================
 
-apiRouter.get('/movimientos', authenticateJWT, (req: AuthenticatedRequest, res: Response) => {
-  const db = loadDatabase();
-  const mapped = db.movimientos_inventario.map(m => {
-    const p = db.productos.find(pro => pro.id === m.producto_id);
-    const u = db.usuarios.find(usr => usr.id === m.usuario_id);
-    return {
-      ...m,
-      producto_nombre: p ? p.nombre : 'Producto Elimiado/Inactivo',
-      producto_codigo: p ? p.codigo : 'N/A',
-      usuario_nombre: u ? u.nombre : 'Operador'
-    };
-  });
-  res.json(mapped.reverse());
-});
+export default apiRouter;
 
-// ==========================================
-// DETAILED REPORTS ENDPOINTS
-// ==========================================
-
-apiRouter.get('/reportes', authenticateJWT, requireRoles(['ADMIN']), (req: AuthenticatedRequest, res: Response) => {
-  const db = loadDatabase();
-
-  // 1. Month-by-month sales representation
-  const salesByMonth: Record<string, number> = {};
-  db.ventas.forEach(v => {
-    const isodate = new Date(v.fecha);
-    const monthKey = isodate.toLocaleString('es-ES', { month: 'short', year: 'numeric' });
-    salesByMonth[monthKey] = (salesByMonth[monthKey] || 0) + v.total;
-  });
-
-  const chartSales = Object.keys(salesByMonth).map(key => ({
-    name: key,
-    total: parseFloat(salesByMonth[key].toFixed(2))
-  }));
-
-  // 2. Sales by payment method
-  const salesByPayment: Record<string, number> = {
-    'EFECTIVO': 0,
-    'TARJETA': 0,
-    'TRANSFERENCIA': 0
-  };
-  db.ventas.forEach(v => {
-    if (salesByPayment[v.metodo_pago] !== undefined) {
-      salesByPayment[v.metodo_pago] += v.total;
-    }
-  });
-
-  const chartPayment = Object.keys(salesByPayment).map(key => ({
-    name: key,
-    value: parseFloat(salesByPayment[key].toFixed(2))
-  }));
-
-  // 3. Category distribution (Product share value count)
-  const categoryCount: Record<string, number> = {};
-  db.productos.forEach(p => {
-    const cat = db.categorias.find(c => c.id === p.categoria_id);
-    const catName = cat ? cat.nombre : 'Sin Categoría';
-    categoryCount[catName] = (categoryCount[catName] || 0) + 1;
-  });
-
-  const chartCategories = Object.keys(categoryCount).map(key => ({
-    name: key,
-    value: categoryCount[key]
-  }));
-
-  res.json({
-    chartSales,
-    chartPayment,
-    chartCategories,
-    totals: {
-      totalVendido: db.ventas.reduce((s, v) => s + v.total, 0),
-      totalComprado: db.compras.reduce((s, c) => s + c.total, 0),
-      productosRegistrados: db.productos.length,
-      clientesRegistrados: db.clientes.length,
-      proveedoresRegistrados: db.proveedores.length
-    }
-  });
-});
